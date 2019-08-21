@@ -14,6 +14,7 @@ class DirWalkerThread(Thread):
 
     def run(self):
         fs = self.readDir(self.dir)
+        print(fs)
         for f in fs:
             pendingFiles.put(f)
 
@@ -48,6 +49,7 @@ class FileProcesser(Thread):
                 if not chunk:
                     break
                 self.processChunks(chunk)
+        print("byteAnalysis finished")
 
     def processChunks(self,chunk):
         chunklen = len(chunk)
@@ -67,7 +69,7 @@ class FileProcesser(Thread):
         """
         try:
             # 用 sigcheck下指令
-            output_str = os.popen('sigcheck -i -nobanner ' + filepath).read()
+            output_str = os.popen('sigcheck64.exe -i -nobanner ' + filepath).read()
             str_list = re.findall(r"\w+.+", output_str)  # 將結果切成 list
 
             # 確認是否有簽章，若無會回傳 None，若有簽章再看看是誰簽的
@@ -98,7 +100,7 @@ class FileProcesser(Thread):
 
 
 def InitiateDirWalkers():
-    threads = [DirWalkerThread("Data\\data1"),DirWalkerThread("Data\\data2"),DirWalkerThread("Data\\data3"),DirWalkerThread("Data\\web")]
+    threads = [DirWalkerThread("TestDir\\testdir1"),DirWalkerThread("TestDir\\testdir2"),DirWalkerThread("TestDir\\testdir3"),DirWalkerThread("TestDir\\web")]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -113,8 +115,8 @@ def InitiateFileProcessors():
 
 if __name__ == '__main__':
     InitiateDirWalkers()
-
     start2 = time.time()
     InitiateFileProcessors()
     end2 = time.time()
+
     print("with multithread:{},{},{}".format(start2,end2,end2-start2))
