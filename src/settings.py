@@ -3,8 +3,8 @@
 #confDir = 'C:/Users/J0423/Desktop/Conf'
 
 # rootDir to scan
-baseDir = 'D:/ProgramFiles/MuseScore 3'
+baseDir = 'D:/ProgramFiles'
 # pefile dump dir
-dataDir = '../Data'
+dataDir = '../data'
 #userdb filter
-confDir = '../Conf'
+confDir = '../conf'

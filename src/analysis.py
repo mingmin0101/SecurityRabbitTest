@@ -7,8 +7,10 @@ import platform
 import time
 import win32api
 import string
+import math
 from settings import baseDir,dataDir,confDir
 
+# TOP LEVEL
 def host_info(hostInfo_checked, registry_checked):
     """
     1. 取得掃描端點之硬體、軟體及作業系統資訊(wmi)
@@ -38,6 +40,7 @@ def host_info(hostInfo_checked, registry_checked):
         host_info_dict['registry_list'] = registry_list
     return host_info_dict
 
+# TOP LEVEL
 def pefile_dump(filepath):
     filename = os.path.join(dataDir,'pefileInfo.txt')
     fileIndex = os.path.join(dataDir,'pefileIndex.txt')
@@ -53,7 +56,8 @@ def pefile_dump(filepath):
         i.write("{} {} {} \n".format(filepath,start,end))
     
     return "file stored at {}".format(dataDir)
-    
+
+# TOP LEVEL
 def file_info(filepath):
     created = time.ctime(os.path.getctime(filepath))   # create time
     last_modified = time.ctime(os.path.getmtime(filepath))   # modified time
@@ -61,23 +65,28 @@ def file_info(filepath):
     file_size = os.stat(filepath).st_size
     file_attribute = win32api.GetFileAttributes(filepath)
     file_info_dict = {
+        'file_name':filepath,
         'file_size':file_size,
         'file_attribute':file_attribute,
         'created':created,
         'last_modified':last_modified,
         'last_accessed':last_accessed
     }
-    check_pack_dict = __check_pack(filepath)
-    dll_import_analysis_dict = __dll_import_analysis(filepath)
-    byte_analysis_dict = __byte_analysis(filepath)
+    # BYTEWISE ANALYSIS
+    byte_analysis_dict = byte_analysis(filepath)
 
+    # PE_FILE ANALYSIS
+    pe_file = pefile.PE(filepath, fast_load=True)
+    check_pack_dict = check_pack(pe_file)
+    dll_import_analysis_dict = dll_import_analysis(pe_file)
+
+    file_info_dict.update(byte_analysis_dict)
     file_info_dict.update(check_pack_dict)
     file_info_dict.update(dll_import_analysis_dict)
-    file_info_dict.update(byte_analysis_dict)
     return file_info_dict
+
 #加殼
-def __check_pack(filepath):
-    pe_file = pefile.PE(filepath, fast_load=True)
+def check_pack(pe_file):
     signature_file = os.path.join(confDir,'userdb_filter.txt')
     signatures = None
     with open(signature_file,'r',encoding='utf-8') as f:
@@ -90,93 +99,82 @@ def __check_pack(filepath):
         matchall = []
     return { 'pack' : matchall }
 
-def __dll_import_analysis(filepath):
-    pe_file = pefile.PE(filepath, fast_load=True)
-    rw_ability = __rw_ability(pe_file)
-    internet_ability = __internet_ability(pe_file)
-    exec_ability = __exec_ability(pe_file)
-
-    dll_import_dict = {
-        'rw_ability' : rw_ability,
-        'internet_ability':internet_ability,
-        'exec_ability':exec_ability
-    }
-    return dll_import_dict
-
-def __rw_ability(pe_file):
-    FILE_MANAGEMENT_FUNCTIONS = ['advapi32.dll', 'kernel32.dll', 'wofutil.dll', 'lz32.dll']
-    used_dll = []
-    pe_file.parse_data_directories()
-    for entry in pe_file.DIRECTORY_ENTRY_IMPORT:
-        try:
-            dll = entry.dll.decode('utf-8').lower()
-            if dll in FILE_MANAGEMENT_FUNCTIONS:
-                used_dll.append(dll)
-        except:
-            print("Error in rw_ability ")
-    return used_dll
-
-def __internet_ability(pe_file):
-    '''
-    連網能力判斷
-    '''
-    NETWORKING_AND_INTERNET = ['dnsapi.dll', 'dhcpcsvc.dll', 'dhcpcsvc6.dll', 'dhcpsapi.dll', 'connect.dll', 
+def dll_import_analysis(pe_file):
+    NETWORKING_AND_INTERNET_DLLS = ['dnsapi.dll', 'dhcpcsvc.dll', 'dhcpcsvc6.dll', 'dhcpsapi.dll', 'connect.dll', 
                            'httpapi.dll', 'netshell.dll', 'iphlpapi.dll', 'netfwv6.dll', 'dhcpcsvc.dll',
                            'hnetcfg.dll', 'netapi32.dll', 'qosname.dll', 'rpcrt4.dll', 'mgmtapi.dll', 'snmpapi.dll',
                            'smbwmiv2.dll', 'tapi32.dll', 'netapi32.dll', 'davclnt.dll', 'websocket.dll',
                            'bthprops.dll', 'wifidisplay.dll', 'wlanapi.dll', 'wcmapi.dll', 'fwpuclnt.dll',
                            'firewallapi.dll', 'winhttp.dll', 'wininet.dll', 'wnvapi.dll', 'ws2_32.dll',
                            'webservices.dll']
-    used_dll = []
-    pe_file.parse_data_directories()
-    for entry in pe_file.DIRECTORY_ENTRY_IMPORT:
-        try:
-            dll = entry.dll.decode('utf-8').lower()
-            if dll in NETWORKING_AND_INTERNET:
-                used_dll.append(dll)
-        except:
-            print("Error in internet_ability")
-    return used_dll
-
-def __exec_ability(pe_file):
-    '''
-    執行其他可執行檔能力判斷
-    '''
+    FILE_MANAGEMENT_DLLS = ['advapi32.dll', 'kernel32.dll', 'wofutil.dll', 'lz32.dll']
     EXECUTION_FUNCTIONS = ['winexec']
-    
-    used_dll = []
+
+    network_ability = []
+    rw_ability = []
+    exec_ability = []
+
     pe_file.parse_data_directories()
     for entry in pe_file.DIRECTORY_ENTRY_IMPORT:
-        try:
-            dll = entry.dll.decode('utf-8').lower()
-            if dll in EXECUTION_FUNCTIONS:
-                used_dll.append(dll)
-        except:
-            print("Error in exec_ability")
-    return used_dll
+        dll = entry.dll.decode('utf-8').lower()
+        # check if there is a matching dll import
+        if dll in NETWORKING_AND_INTERNET_DLLS:
+            network_ability.append(dll)
+        if dll in FILE_MANAGEMENT_DLLS:
+            rw_ability.append(dll)
+        
+        for imp in entry.imports:
+            # check if there is a matching function import
+            if imp in EXECUTION_FUNCTIONS:
+                exec_ability.append((hex(imp.address),imp.name.decode('utf-8')))
+        dll_analysis_dict = {
+            'network_ability' : network_ability,
+            'rw_ability' : rw_ability,
+            'exec_ability' : exec_ability
+        }
+    return dll_analysis_dict
 
-def __byte_analysis(filepath):
+def byte_analysis(filepath):
     chunk_size = 8192
     printable_chars = set(bytes(string.printable,'ascii'))
     printable_str_list = []
     byte_list = [0] * 256
+
     with open(filepath,'rb') as f:
         while True:
             chunk = f.read(chunk_size)
             if not chunk:
                 break
-            __byte_summary(chunk,byte_list)
-            __byte_printable(chunk,printable_chars,printable_str_list)
+            __one_gram_byte_summary(chunk, byte_list)
+            __byte_printable(chunk, printable_chars, printable_str_list)
+    entropy = __entropy(byte_list)
+            
     byte_analysis_dict = {
         'printable_strs' : printable_str_list,
-        'byte_summary' : byte_list
+        'byte_summary' : byte_list,
+        'entropy' : entropy
     }
     return byte_analysis_dict
 
-def __byte_summary(chunk,byteList):
+
+def __one_gram_byte_summary(chunk,byteList):
     for byte in chunk:
         byteList[byte] +=1
+    return byteList
         
+def __entropy(byteList):
+    entropy = 0
+    total = 0
+    for byte_count in byteList:
+        total += byte_count
+
+    for byte_count in byteList:
+        if byte_count == 0:
+            continue
+        p = 1.0 * byte_count/total
+        entropy -= math.log(p, 2)
+    return entropy
+
 def __byte_printable(chunk,printable_chars,printable_str_list):
     temp_bytes = b""
     for byte in chunk:
@@ -188,7 +186,7 @@ def __byte_printable(chunk,printable_chars,printable_str_list):
             temp_bytes = b""
         else:
             temp_bytes = b""
-
+    return printable_str_list
 
 if __name__ == '__main__':
     t1 = "C:/Users/user/AppData/Local/LINE/bin/LineLauncher.exe"
