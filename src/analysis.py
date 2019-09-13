@@ -1,5 +1,6 @@
 import os
 import pefile
+from pefile import ordlookup
 import peutils
 import wmi
 import subprocess
@@ -8,7 +9,8 @@ import time
 import win32api
 import string
 import math
-from settings import baseDir,dataDir,confDir
+import hashlib
+from settings import baseDir,dataDir,resourceDir
 
 # TOP LEVEL
 def host_info(hostInfo_checked, registry_checked):
@@ -79,15 +81,17 @@ def file_info(filepath):
     pe_file = pefile.PE(filepath, fast_load=True)
     check_pack_dict = check_pack(pe_file)
     dll_import_analysis_dict = dll_import_analysis(pe_file)
+    pefile_infos_dict = pefile_infos(pe_file)
 
     file_info_dict.update(byte_analysis_dict)
     file_info_dict.update(check_pack_dict)
     file_info_dict.update(dll_import_analysis_dict)
+    file_info_dict.update(pefile_infos_dict)
     return file_info_dict
 
 #加殼
 def check_pack(pe_file):
-    signature_file = os.path.join(confDir,'userdb_filter.txt')
+    signature_file = os.path.join(resourceDir,'userdb_filter.txt')
     signatures = None
     with open(signature_file,'r',encoding='utf-8') as f:
         sig_data = f.read()
@@ -134,11 +138,60 @@ def dll_import_analysis(pe_file):
         }
     return dll_analysis_dict
 
+def pefile_infos(pe_file):
+    # basic info
+    basic_dic = {}
+    basic_dic['NumberOfSections'] = pe_file.FILE_HEADER.NumberOfSections
+    basic_dic['AddressOfEntryPoint'] = pe_file.OPTIONAL_HEADER.AddressOfEntryPoint
+    basic_dic['ImageBase'] = pe_file.OPTIONAL_HEADER.ImageBase
+    
+    # section_info [(Name, Virtual Address, Virtual Size, Raw Size, Entropy, SHA256, MD5), ...]
+    section_li = []
+    for section in pe_file.sections:
+        section_li.append([section.Name.decode('ascii').rstrip('\x00'), section.VirtualAddress, section.Misc_VirtualSize, section.SizeOfRawData, section.get_entropy(), section.get_hash_sha256(), section.get_hash_md5()])
+    basic_dic['Section_info'] = section_li
+    
+    # import_info { dll : [API, API,....], dll : [API, API,....], ...}
+    pe_file.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']])   
+    import_dic = {}
+    if hasattr(pe_file, 'DIRECTORY_ENTRY_IMPORT'):
+        for entry in pe_file.DIRECTORY_ENTRY_IMPORT:
+            import_dic[entry.dll.decode('ascii')] = []
+
+            for imp in entry.imports:
+                funcname = None
+                if not imp.name:  #可能會發生沒有imp.name的情形，為了避免跑錯所以我自己參考pefile套件自己加的
+                    funcname = ordlookup.ordLookup(entry.dll.lower(), imp.ordinal, make_name=True)
+                    if not funcname:
+                        raise Exception("Unable to look up ordinal %s:%04x" % (entry.dll, imp.ordinal))
+                else:
+                    funcname = imp.name
+                    import_dic[entry.dll.decode('ascii')].append(imp.name.decode('ascii'))
+
+                if not funcname:
+                    continue
+            # print(import_dic[entry.dll.decode('ascii')])   # 測試用
+    # print(import_dic)  # 測試用
+    basic_dic['Import_directories'] = import_dic
+    
+    # export_info   不是每個檔案都有，如果有問題的話可以只保留 exp.name.decode('ascii')即可
+    pe_file.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXPORT']])
+    export_li = []
+    if hasattr(pe_file, 'DIRECTORY_ENTRY_EXPORT'):
+        for exp in pe_file.DIRECTORY_ENTRY_EXPORT.symbols:
+            export_li.append([hex(pe_file.OPTIONAL_HEADER.ImageBase + exp.address), exp.name.decode('ascii'), exp.ordinal])
+    basic_dic['Export_directories'] = export_li
+    
+    # dump_info
+    # pe.dump_info() 這個可以先照原本存在txt裡面~ 我有空再來想想看怎麼處理其他雜七雜八的資訊比較好~
+    return basic_dic
+
 def byte_analysis(filepath):
     chunk_size = 8192
     printable_chars = set(bytes(string.printable,'ascii'))
     printable_str_list = []
     byte_list = [0] * 256
+    sha1 = hashlib.sha1()
 
     with open(filepath,'rb') as f:
         while True:
@@ -147,15 +200,16 @@ def byte_analysis(filepath):
                 break
             __one_gram_byte_summary(chunk, byte_list)
             __byte_printable(chunk, printable_chars, printable_str_list)
+            sha1.update(chunk)
     entropy = __entropy(byte_list)
             
     byte_analysis_dict = {
         'printable_strs' : printable_str_list,
         'byte_summary' : byte_list,
-        'entropy' : entropy
+        'entropy' : entropy,
+        'file_sha1': sha1.hexdigest()
     }
     return byte_analysis_dict
-
 
 def __one_gram_byte_summary(chunk,byteList):
     for byte in chunk:
@@ -164,15 +218,12 @@ def __one_gram_byte_summary(chunk,byteList):
         
 def __entropy(byteList):
     entropy = 0
-    total = 0
-    for byte_count in byteList:
-        total += byte_count
-
-    for byte_count in byteList:
-        if byte_count == 0:
-            continue
-        p = 1.0 * byte_count/total
-        entropy -= math.log(p, 2)
+    total = sum(byteList)
+    for item in byteList:
+        freq = item / total
+        if freq != 0 :
+            entropy = entropy + freq * math.log(freq, 2)
+    entropy *= -1
     return entropy
 
 def __byte_printable(chunk,printable_chars,printable_str_list):
@@ -190,17 +241,9 @@ def __byte_printable(chunk,printable_chars,printable_str_list):
 
 if __name__ == '__main__':
     t1 = "C:/Users/user/AppData/Local/LINE/bin/LineLauncher.exe"
-    t2 = "D:/ProgramFiles/AVAST Software/Avast/defs/19082906/ArPot.dll"
-    t3 = "D:/ProgramFiles/Anaconda3/Library/bin/pkgdata.exe"
-    testfiles = [t1,t2,t3]
+    t2 = "D:/ProgramFiles/Anaconda3/Library/bin/pkgdata.exe"
+    testfiles = [t1,t2]
     
-
-    host_info(True,False)
-    outputs = []
     for t in testfiles:
-        o1 = pefile_dump(t) #OK
-        o2 = file_info(t)
-    outputs.extend([o1,o2])
+        print(byte_analysis(t))
     
-    for o in outputs:
-        print(o)
