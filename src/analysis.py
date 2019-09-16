@@ -11,7 +11,6 @@ import string
 import math
 import hashlib
 import io
-import utils
 import re
 from settings import baseDir,dataDir,resourceDir
 
@@ -78,7 +77,7 @@ def file_info(filepath):
         'last_accessed':last_accessed
 
     }
-    
+
     #sigcheck.exe output to dict
     sigcheck_dict = sigcheck(filepath)
     # BYTEWISE ANALYSIS
@@ -158,10 +157,11 @@ def __signers(sigcheck_str_list):
         #print(counter_signer_list)
 
     except ValueError:
-        print(ValueError)
-
+        #print(ValueError)
+        pass
     except IndexError:
-        print(IndexError)
+        pass
+        #print(IndexError)
     signers_dict = {}
     signers_dict['Signers'] = signer_list
     signers_dict['Counter Signers'] = counter_signer_list
@@ -192,7 +192,7 @@ def dll_import_analysis(pe_file):
                            'webservices.dll']
     FILE_MANAGEMENT_DLLS = ['advapi32.dll', 'kernel32.dll', 'wofutil.dll', 'lz32.dll']
     EXECUTION_FUNCTIONS = ['winexec']
-
+    
     network_ability = []
     rw_ability = []
     exec_ability = []
@@ -210,6 +210,7 @@ def dll_import_analysis(pe_file):
             # check if there is a matching function import
             if imp in EXECUTION_FUNCTIONS:
                 exec_ability.append((hex(imp.address),imp.name.decode('utf-8')))
+            
         dll_analysis_dict = {
             'network_ability' : network_ability,
             'rw_ability' : rw_ability,
