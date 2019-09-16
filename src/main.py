@@ -12,15 +12,16 @@ import sys
 
 # exists problem when using multiprocessing Queue program won't end
 def read_directory(directory, pending_file_queue, pending_dir_queue, examineFileType = ['.exe']):
+    print('start')
     for root, dirs, files in os.walk(directory):
         for f in files:
             if os.path.splitext(f)[-1] in examineFileType:
                 file_name = os.path.join(root,f)
                 pending_file_queue.put(file_name)
                 print("{} Added to pending_file_queue... ".format(file_name))
-        for d in dirs:
-            directory_name = os.path.join(root,d)
-            pending_dir_queue.put(directory_name)
+        # for d in dirs:
+        #     directory_name = os.path.join(root,d)
+        #     pending_dir_queue.put(directory_name)
 
 def process_files(pending_file_queue, processed_file_queue, problem_file_queue):
     try:

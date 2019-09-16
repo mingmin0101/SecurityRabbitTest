@@ -48,18 +48,21 @@ def host_info(hostInfo_checked, registry_checked):
 def pefile_dump(filepath):
     filename = os.path.join(dataDir,'pefileInfo.txt')
     fileIndex = os.path.join(dataDir,'pefileIndex.txt')
-    pe = pefile.PE(filepath, fast_load=True)
+    try:
+        pe = pefile.PE(filepath, fast_load=True)
 
-    start = 0
-    end = 0
-    with open(filename,'a') as f:
-        start = f.tell()
-        f.write(pe.dump_info())
-        end = f.tell()
-    with open(fileIndex,'a') as i:
-        i.write("{} {} {} \n".format(filepath,start,end))
-    
-    return "file stored at {}".format(dataDir)
+        start = 0
+        end = 0
+        with open(filename,'a') as f:
+            start = f.tell()
+            f.write(pe.dump_info())
+            end = f.tell()
+        with open(fileIndex,'a') as i:
+            i.write("{} {} {} \n".format(filepath,start,end))
+        
+        return "file stored at {}".format(dataDir)
+    except:
+        pass
 
 # TOP LEVEL
 def file_info(filepath):
@@ -80,29 +83,37 @@ def file_info(filepath):
 
     #sigcheck.exe output to dict
     sigcheck_dict = sigcheck(filepath)
+    file_info_dict.update(sigcheck_dict)
     # BYTEWISE ANALYSIS
     byte_analysis_dict = byte_analysis(filepath)
+    file_info_dict.update(byte_analysis_dict)
 
     # PE_FILE ANALYSIS
-    pe_file = pefile.PE(filepath, fast_load=True)
-    check_pack_dict = check_pack(pe_file)
-    dll_import_analysis_dict = dll_import_analysis(pe_file)
-    pefile_infos_dict = pefile_infos(pe_file)
+    try:
+        pe_file = pefile.PE(filepath, fast_load=True)
+        check_pack_dict = check_pack(pe_file)
+        dll_import_analysis_dict = dll_import_analysis(pe_file)
+        pefile_infos_dict = pefile_infos(pe_file)
+        
+        file_info_dict.update(check_pack_dict)
+        file_info_dict.update(dll_import_analysis_dict)
+        file_info_dict.update(pefile_infos_dict)
+    except:
+        pass    
 
-    file_info_dict.update(sigcheck_dict)
-    file_info_dict.update(byte_analysis_dict)
-    file_info_dict.update(check_pack_dict)
-    file_info_dict.update(dll_import_analysis_dict)
-    file_info_dict.update(pefile_infos_dict)
     return file_info_dict
 
 def sigcheck(filepath):
+    
     sigcheck_path = os.path.join(resourceDir,'sigcheck64')
-    args = [sigcheck_path,'-i','-nobanner',filepath]
+    filepath = filepath.replace("\\", "//")
+
+    args = [sigcheck_path,'-i', '-l', '-nobanner',filepath]
     pipe = subprocess.Popen(args, stdout=subprocess.PIPE)
     sigcheck_output = pipe.communicate()[0]
+    sigcheck_str = ""
 
-    sigcheck_str = sigcheck_output.decode('utf-8')
+    sigcheck_str = sigcheck_output.decode('utf-8',"replace")
     #print(sigcheck_str)
     sigcheck_str = sigcheck_str.replace('\r\n\t'+'  ', '\n<Certificate>')
     sigcheck_str = sigcheck_str.replace('\r\n\t\t', '\n<Certi Info>')
@@ -122,9 +133,11 @@ def sigcheck(filepath):
     signers_dict = __signers(sigcheck_str_list)
 
     sigcheck_dict.update(signers_dict)
-    #print(signers_dict)
-    #print(sigcheck_dict)
     return sigcheck_dict
+    
+    # print(signers_dict)
+    # print(sigcheck_dict)
+   
 
 def __signers(sigcheck_str_list):
     signer_list = []
@@ -162,12 +175,16 @@ def __signers(sigcheck_str_list):
     except IndexError:
         pass
         #print(IndexError)
+
     signers_dict = {}
     signers_dict['Signers'] = signer_list
     signers_dict['Counter Signers'] = counter_signer_list
 
     #print(signers_dict)
     return signers_dict
+
+
+
 #加殼
 def check_pack(pe_file):
     signature_file = os.path.join(resourceDir,'userdb_filter.txt')
@@ -196,26 +213,29 @@ def dll_import_analysis(pe_file):
     network_ability = []
     rw_ability = []
     exec_ability = []
+    dll_analysis_dict = {}
 
-    pe_file.parse_data_directories()
-    for entry in pe_file.DIRECTORY_ENTRY_IMPORT:
-        dll = entry.dll.decode('utf-8').lower()
-        # check if there is a matching dll import
-        if dll in NETWORKING_AND_INTERNET_DLLS:
-            network_ability.append(dll)
-        if dll in FILE_MANAGEMENT_DLLS:
-            rw_ability.append(dll)
-        
-        for imp in entry.imports:
-            # check if there is a matching function import
-            if imp in EXECUTION_FUNCTIONS:
-                exec_ability.append((hex(imp.address),imp.name.decode('utf-8')))
+    #pe_file.parse_data_directories()
+    if hasattr(pe_file, 'DIRECTORY_ENTRY_IMPORT'):
+        pe_file.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']]) 
+        for entry in pe_file.DIRECTORY_ENTRY_IMPORT:
+            dll = entry.dll.decode('utf-8').lower()
+            # check if there is a matching dll import
+            if dll in NETWORKING_AND_INTERNET_DLLS:
+                network_ability.append(dll)
+            if dll in FILE_MANAGEMENT_DLLS:
+                rw_ability.append(dll)
             
-        dll_analysis_dict = {
-            'network_ability' : network_ability,
-            'rw_ability' : rw_ability,
-            'exec_ability' : exec_ability
-        }
+            for imp in entry.imports:
+                # check if there is a matching function import
+                if imp in EXECUTION_FUNCTIONS:
+                    exec_ability.append((hex(imp.address),imp.name.decode('utf-8')))
+                
+            dll_analysis_dict = {
+                'network_ability' : network_ability,
+                'rw_ability' : rw_ability,
+                'exec_ability' : exec_ability
+            }
     return dll_analysis_dict
 
 def pefile_infos(pe_file):
@@ -237,8 +257,9 @@ def pefile_infos(pe_file):
     basic_dic['Section_info'] = section_li
     
     # import_info { dll : [API, API,....], dll : [API, API,....], ...}
-    pe_file.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']])   
+    # pe_file.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']])   
     import_dic = {}
+    pe_file.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']])
     if hasattr(pe_file, 'DIRECTORY_ENTRY_IMPORT'):
         for entry in pe_file.DIRECTORY_ENTRY_IMPORT:
             import_dic[entry.dll.decode('ascii')] = []
@@ -261,11 +282,12 @@ def pefile_infos(pe_file):
     basic_dic['Import_directories'] = import_dic
     
     # export_info   不是每個檔案都有，如果有問題的話可以只保留 exp.name.decode('ascii')即可
-    pe_file.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXPORT']])
+    # pe_file.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXPORT']])
     export_li = []
+    pe_file.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXPORT']])
     if hasattr(pe_file, 'DIRECTORY_ENTRY_EXPORT'):
         for exp in pe_file.DIRECTORY_ENTRY_EXPORT.symbols:
-            export_li.append([hex(pe_file.OPTIONAL_HEADER.ImageBase + exp.address), exp.name.decode('ascii'), exp.ordinal])
+            export_li.append(exp.name.decode('ascii'))    # export_li.append([hex(pe_file.OPTIONAL_HEADER.ImageBase + exp.address), exp.name.decode('ascii'), exp.ordinal])
     basic_dic['Export_directories'] = export_li
     
     # dump_info
