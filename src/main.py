@@ -73,7 +73,7 @@ if __name__ == '__main__':
     while not processed_file_queue.empty():
         all_files.append(processed_file_queue.get())
     df = pandas.DataFrame(all_files)
-    df.to_excel(os.path.join(dataDir,'exeInfo.xlsx'))
+    df.to_excel(os.path.join(dataDir,'exeInfo.xlsx'),index=False)
 
     
     # round1

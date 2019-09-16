@@ -10,6 +10,9 @@ import win32api
 import string
 import math
 import hashlib
+import io
+import utils
+import re
 from settings import baseDir,dataDir,resourceDir
 
 # TOP LEVEL
@@ -73,7 +76,11 @@ def file_info(filepath):
         'created':created,
         'last_modified':last_modified,
         'last_accessed':last_accessed
+
     }
+    
+    #sigcheck.exe output to dict
+    sigcheck_dict = sigcheck(filepath)
     # BYTEWISE ANALYSIS
     byte_analysis_dict = byte_analysis(filepath)
 
@@ -83,12 +90,84 @@ def file_info(filepath):
     dll_import_analysis_dict = dll_import_analysis(pe_file)
     pefile_infos_dict = pefile_infos(pe_file)
 
+    file_info_dict.update(sigcheck_dict)
     file_info_dict.update(byte_analysis_dict)
     file_info_dict.update(check_pack_dict)
     file_info_dict.update(dll_import_analysis_dict)
     file_info_dict.update(pefile_infos_dict)
     return file_info_dict
 
+def sigcheck(filepath):
+    sigcheck_path = os.path.join(resourceDir,'sigcheck64')
+    args = [sigcheck_path,'-i','-nobanner',filepath]
+    pipe = subprocess.Popen(args, stdout=subprocess.PIPE)
+    sigcheck_output = pipe.communicate()[0]
+
+    sigcheck_str = sigcheck_output.decode('utf-8')
+    #print(sigcheck_str)
+    sigcheck_str = sigcheck_str.replace('\r\n\t'+'  ', '\n<Certificate>')
+    sigcheck_str = sigcheck_str.replace('\r\n\t\t', '\n<Certi Info>')
+    sigcheck_str = sigcheck_str.replace('\r\n\t', '\n<attribute>')
+    sigcheck_str = sigcheck_str.replace('\t','')
+    sigcheck_str += '<end>'
+    #print(sigcheck_str)
+
+    sigcheck_dict = {}
+    
+    for attr in re.findall('<attribute>.*',sigcheck_str):
+        attr = attr.replace('<attribute>','')
+        attribute_name, attribute_val = attr.split(":",1)
+        sigcheck_dict[attribute_name] = attribute_val
+    
+    sigcheck_str_list = [line.replace('\n','').replace('\r','') for line in io.StringIO(sigcheck_str).readlines()]
+    signers_dict = __signers(sigcheck_str_list)
+
+    sigcheck_dict.update(signers_dict)
+    #print(signers_dict)
+    #print(sigcheck_dict)
+    return sigcheck_dict
+
+def __signers(sigcheck_str_list):
+    signer_list = []
+    counter_signer_list = []
+    
+    try:
+        signer_start_index = []
+        counter_signer_start_index = []
+
+        for index, sigcheck_str in enumerate(sigcheck_str_list):
+            if '<attribute>Signers:' in sigcheck_str:
+                signer_start_index.append(index)
+            elif '<attribute>Counter Signers' in sigcheck_str:
+                counter_signer_start_index.append(index)
+
+        #print(signer_start_index)
+        #print(counter_signer_start_index)
+        for i in range(signer_start_index[0],counter_signer_start_index[0]-1,9):
+            signer_list.append(sigcheck_str_list[i+1 : i+10])
+        for i in range(signer_start_index[1],counter_signer_start_index[1]-1,9):
+            signer_list.append(sigcheck_str_list[i+1 : i+10])
+        
+        for i in range(counter_signer_start_index[0],signer_start_index[0],9):
+            if '<Certificate>' in sigcheck_str_list[i+1]:
+                counter_signer_list.append(sigcheck_str_list[i+1 : i+10])
+        for i in range(counter_signer_start_index[1],len(sigcheck_str_list),9):
+            if '<Certificate>' in sigcheck_str_list[i+1]:
+                counter_signer_list.append(sigcheck_str_list[i+1 : i+10])
+        #print(signer_list)
+        #print(counter_signer_list)
+
+    except ValueError:
+        print(ValueError)
+
+    except IndexError:
+        print(IndexError)
+    signers_dict = {}
+    signers_dict['Signers'] = signer_list
+    signers_dict['Counter Signers'] = counter_signer_list
+
+    #print(signers_dict)
+    return signers_dict
 #加殼
 def check_pack(pe_file):
     signature_file = os.path.join(resourceDir,'userdb_filter.txt')
@@ -139,9 +218,14 @@ def dll_import_analysis(pe_file):
     return dll_analysis_dict
 
 def pefile_infos(pe_file):
+
     # basic info
     basic_dic = {}
+    basic_dic['Machine'] = pe_file.FILE_HEADER.Machine
     basic_dic['NumberOfSections'] = pe_file.FILE_HEADER.NumberOfSections
+    basic_dic['TimeDateStamp'] = pe_file.FILE_HEADER.TimeDateStamp
+    basic_dic['Characteristics'] = pe_file.FILE_HEADER.Characteristics
+    
     basic_dic['AddressOfEntryPoint'] = pe_file.OPTIONAL_HEADER.AddressOfEntryPoint
     basic_dic['ImageBase'] = pe_file.OPTIONAL_HEADER.ImageBase
     
@@ -170,8 +254,9 @@ def pefile_infos(pe_file):
 
                 if not funcname:
                     continue
-            # print(import_dic[entry.dll.decode('ascii')])   # 測試用
-    # print(import_dic)  # 測試用
+
+            # print(import_dic[entry.dll.decode('ascii')])
+    # print(import_dic)
     basic_dic['Import_directories'] = import_dic
     
     # export_info   不是每個檔案都有，如果有問題的話可以只保留 exp.name.decode('ascii')即可
@@ -184,6 +269,7 @@ def pefile_infos(pe_file):
     
     # dump_info
     # pe.dump_info() 這個可以先照原本存在txt裡面~ 我有空再來想想看怎麼處理其他雜七雜八的資訊比較好~
+            
     return basic_dic
 
 def byte_analysis(filepath):
@@ -241,9 +327,9 @@ def __byte_printable(chunk,printable_chars,printable_str_list):
 
 if __name__ == '__main__':
     t1 = "C:/Users/user/AppData/Local/LINE/bin/LineLauncher.exe"
-    t2 = "D:/ProgramFiles/Anaconda3/Library/bin/pkgdata.exe"
+    t2 = "../testdir/testdir1/python.exe"
     testfiles = [t1,t2]
     
     for t in testfiles:
-        print(byte_analysis(t))
+        sigcheck(t)
     
