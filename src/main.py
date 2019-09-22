@@ -12,7 +12,6 @@ import sys
 
 # exists problem when using multiprocessing Queue program won't end
 def read_directory(directory, pending_file_queue, pending_dir_queue, examineFileType = ['.exe']):
-    print('start')
     for root, dirs, files in os.walk(directory):
         for f in files:
             if os.path.splitext(f)[-1] in examineFileType:
@@ -95,7 +94,7 @@ if __name__ == '__main__':
     # round2
     # processed D:/ with multiprocess: 277.9546284675598 sec
     # processed D:/ with singleprocess: 652.4830689430237 sec
-
+    
     # Error Report
     # OSError: [WinError 1920] 系統無法存取該檔案。: 'C:/Users/user\\AppData\\Local\\Microsoft\\WindowsApps\\protocolhandler.exe'
 
