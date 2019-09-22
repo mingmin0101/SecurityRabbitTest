@@ -24,16 +24,21 @@ def read_directory(directory, pending_file_queue, pending_dir_queue, examineFile
         #     pending_dir_queue.put(directory_name)
 
 def process_files(pending_file_queue, processed_file_queue, problem_file_queue):
-    try:
-        while not pending_file_queue.empty():
-            file_name = pending_file_queue.get()
+    while not pending_file_queue.empty():
+        file_name = pending_file_queue.get()
+        try:
             analysis.pefile_dump(file_name)
             file_info = analysis.file_info(file_name)
             processed_file_queue.put(file_info)
             print("[{} files remaining] Finished Processing {}...".format(pending_file_queue.qsize(),file_name))
-    except:
-        logging.exception('Exception Occured')
-        raise
+        except OSError:
+            logging.exception(OSError)
+            error_dict = {
+                'file_name' : file_name,
+                'error' : OSError,
+            }
+            problem_file_queue.put(error_dict)
+        
 
 def get_runtime(func):
     start = time.time()
@@ -76,6 +81,12 @@ if __name__ == '__main__':
     df = pandas.DataFrame(all_files)
     df.to_excel(os.path.join(dataDir,'exeInfo.xlsx'),index=False)
 
+    error_files = []
+    while not problem_file_queue.empty():
+        error_files.append(problem_file_queue.get())
+    df = pandas.DataFrame(error_files)
+    df.to_excel(os.path.join(dataDir,'error.xlsx'),index=False)
+
     
     # round1
     # processed D:/ProgramFiles with multiprocess: 123.82507729530334 sec
@@ -84,7 +95,7 @@ if __name__ == '__main__':
     # round2
     # processed D:/ with multiprocess: 277.9546284675598 sec
     # processed D:/ with singleprocess: 652.4830689430237 sec
-    
+
     # Error Report
     # OSError: [WinError 1920] 系統無法存取該檔案。: 'C:/Users/user\\AppData\\Local\\Microsoft\\WindowsApps\\protocolhandler.exe'
 
