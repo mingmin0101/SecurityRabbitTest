@@ -26,7 +26,7 @@ def process_files(pending_file_queue, processed_file_queue, problem_file_queue):
     while not pending_file_queue.empty():
         file_name = pending_file_queue.get()
         try:
-            analysis.pefile_dump(file_name)
+            # analysis.pefile_dump(file_name)
             file_info = analysis.file_info(file_name)
             processed_file_queue.put(file_info)
             print("[{} files remaining] Finished Processing {}...".format(pending_file_queue.qsize(),file_name))
@@ -52,7 +52,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("directories", nargs="+", help="the root directory(s) you want to scan")
     parser.add_argument("--hostInfo", dest="hostInfo", action="store_true", help="set to True to scan hostInfo")
-    parser.add_argument("--pefileDump", dest="pefileDump", action="store_true", help="set to True to pefileDump")
+    #parser.add_argument("--pefileDump", dest="pefileDump", action="store_true", help="set to True to pefileDump")
     args = parser.parse_args()
     
     manager = multiprocessing.Manager()
