@@ -127,7 +127,7 @@ def sigcheck(filepath):
     for attr in re.findall('<attribute>.*',sigcheck_str):
         attr = attr.replace('<attribute>','')
         attribute_name, attribute_val = attr.split(":",1)
-        sigcheck_dict[attribute_name] = attribute_val
+        sigcheck_dict["sigcheck_"+attribute_name] = attribute_val
     
     sigcheck_str_list = [line.replace('\n','').replace('\r','') for line in io.StringIO(sigcheck_str).readlines()]
     signers_dict = __signers(sigcheck_str_list)
@@ -214,10 +214,12 @@ def dll_import_analysis(pe_file):
     rw_ability = []
     exec_ability = []
     dll_analysis_dict = {}
+    n_bool = False
+    rw_bool = False
+    exec_bool = False
 
-    #pe_file.parse_data_directories()
-    if hasattr(pe_file, 'DIRECTORY_ENTRY_IMPORT'):
-        pe_file.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']]) 
+    pe_file.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']])
+    if hasattr(pe_file, 'DIRECTORY_ENTRY_IMPORT'): 
         for entry in pe_file.DIRECTORY_ENTRY_IMPORT:
             dll = entry.dll.decode('utf-8').lower()
             # check if there is a matching dll import
@@ -230,11 +232,22 @@ def dll_import_analysis(pe_file):
                 # check if there is a matching function import
                 if imp in EXECUTION_FUNCTIONS:
                     exec_ability.append((hex(imp.address),imp.name.decode('utf-8')))
+            
+            if (network_ability != []): 
+                n_bool=True 
+            if (rw_ability != []): 
+                rw_bool=True 
+            if (exec_ability != []): 
+                exec_bool=True 
                 
             dll_analysis_dict = {
-                'network_ability' : network_ability,
-                'rw_ability' : rw_ability,
-                'exec_ability' : exec_ability
+                'network_ability' : n_bool,
+                'network_ability_dic' : network_ability,
+                'rw_ability' : rw_bool,
+                'rw_ability_dic' : rw_ability,
+                'exec_ability' : exec_bool,
+                'exec_ability_dic' : exec_ability,
+
             }
     return dll_analysis_dict
 
@@ -301,6 +314,7 @@ def byte_analysis(filepath):
     printable_str_list = []
     byte_list = [0] * 256
     sha1 = hashlib.sha1()
+    byte_dic = {}
 
     with open(filepath,'rb') as f:
         while True:
@@ -311,13 +325,18 @@ def byte_analysis(filepath):
             __byte_printable(chunk, printable_chars, printable_str_list)
             sha1.update(chunk)
     entropy = __entropy(byte_list)
-            
+    
+    for i in range(len(byte_list)):
+        byte_dic[i] = byte_list[i]
+
     byte_analysis_dict = {
         'printable_strs' : printable_str_list,
-        'byte_summary' : byte_list,
+        #'byte_summary' : byte_list,
         'entropy' : entropy,
         'file_sha1': sha1.hexdigest()
     }
+    byte_analysis_dict.update(byte_dic)
+
     return byte_analysis_dict
 
 def __one_gram_byte_summary(chunk,byteList):
@@ -329,8 +348,8 @@ def __entropy(byteList):
     entropy = 0
     total = sum(byteList)
     for item in byteList:
-        freq = item / total
-        if freq != 0 :
+        if item != 0 :
+            freq = item / total
             entropy = entropy + freq * math.log(freq, 2)
     entropy *= -1
     return entropy
